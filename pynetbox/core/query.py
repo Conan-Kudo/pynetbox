@@ -139,6 +139,8 @@ class Request(object):
         private_key=None,
         session_key=None,
         ssl_verify=True,
+        progress=False,
+        count_only=False
     ):
         """
         Instantiates a new Request object
@@ -160,6 +162,8 @@ class Request(object):
         self.private_key = private_key
         self.session_key = session_key
         self.ssl_verify = ssl_verify
+        self.progress = progress
+        self.count_only = count_only
 
     def get_session_key(self):
         """Requests session key
@@ -262,11 +266,35 @@ class Request(object):
             else:
                 raise RequestError(req)
 
+        def get_count(url):
+            total_count_url = "{}{}limit=1".format(
+                            self.url,
+                            "&" if self.url[-1] != "/" else "?"
+                            )
+            req = make_request(total_count_url)
+            if isinstance(req, dict) and req.get("results") is not None:
+                return req["count"]
+            else:
+                return req
+
         def req_all(url):
+            total_count = get_count(self.url)
+            if self.count_only:
+                return total_count
+            if total_count:
+                if self.progress:
+                    from tqdm import tqdm
+                    progress_bar = tqdm(
+                        unit="results",
+                        total=total_count,
+                        desc="Progress: "
+                        )
             req = make_request(url)
             if isinstance(req, dict) and req.get("results") is not None:
                 ret = req["results"]
                 first_run = True
+                if self.progress:
+                    progress_bar.update(len(req["results"]))
                 while req["next"]:
                     next_url = (
                         "{}{}limit={}&offset={}".format(
@@ -281,6 +309,10 @@ class Request(object):
                     req = make_request(next_url)
                     first_run = False
                     ret.extend(req["results"])
+                    if self.progress:
+                        progress_bar.update(len(req["results"]))
+                if self.progress:
+                    progress_bar.close()
                 return ret
             else:
                 return req
